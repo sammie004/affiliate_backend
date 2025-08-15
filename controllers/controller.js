@@ -3,68 +3,71 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const db = require("../connection/connection");
 
+// ---------- Signup ----------
 const signup = (req, res) => {
-  const { full_name, password, username, commission_plan } = req.body;
+    const { full_name, password, username, commission_plan } = req.body;
 
-  // ref can arrive from redirect (?ref=code) or body (referral_code/referred_by)
-  const incomingRef =
-    req.query.ref ||
-    req.body.referral_code ||
-    req.body.referred_by ||
-    null;
+    const incomingRef = req.query.ref || req.body.referral_code || req.body.referred_by || null;
 
-  if (!full_name || !password || !username || !commission_plan) {
-    return res.status(400).json({ message: "Fullname, username, password, and commission_plan are required" });
-  }
-
-  const checkUser = 'SELECT id FROM users WHERE username = ?';
-  db.query(checkUser, [username], (err, rows) => {
-    if (err) return res.status(500).json({ message: "Database error", error: err });
-    if (rows.length > 0) return res.status(400).json({ message: "Username already exists" });
-
-    const hashed = bcrypt.hashSync(password, 10);
-    const referralCode = crypto.randomBytes(5).toString("hex");
-    const baseUrl = process.env.BASE_URL || "http://localhost:3000";
-    const referralLink = `${baseUrl}/ref/${username}/${referralCode}`;
-
-    // If there’s a ref code, verify it belongs to someone
-    if (incomingRef) {
-      const findRef = 'SELECT id FROM users WHERE referral_code = ?';
-      db.query(findRef, [incomingRef], (e2, refRows) => {
-        if (e2) return res.status(500).json({ message: "Database error", error: e2 });
-
-        const referredBy = refRows.length ? incomingRef : null;
-
-        insertUser({ referredBy });
-      });
-    } else {
-      insertUser({ referredBy: null });
+    if (!full_name || !password || !username || !commission_plan) {
+        return res.status(400).json({ message: "Fullname, username, password, and commission_plan are required" });
     }
 
-    function insertUser({ referredBy }) {
-      const insert = `
-        INSERT INTO users (full_name, username, password, commission_plan, referral_code, referral_link, referred_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `;
-      db.query(
-        insert,
-        [full_name, username, hashed, commission_plan, referralCode, referralLink, referredBy],
-        (e3, result) => {
-          if (e3) return res.status(500).json({ message: "Database error", error: e3 });
+    const checkUser = 'SELECT id FROM users WHERE username = ?';
+    db.query(checkUser, [username], (err, rows) => {
+        if (err) return res.status(500).json({ message: "Database error", error: err });
+        if (rows.length > 0) return res.status(400).json({ message: "Username already exists" });
 
-          const token = generateToken({ id: result.insertId, username });
-          return res.status(201).json({
-            message: "User created successfully",
-            token,
-            referralCode:referralCode,
-            referral_link: referralLink
-          });
+        const hashed = bcrypt.hashSync(password, 10);
+        const referralCode = crypto.randomBytes(5).toString("hex");
+        const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+        const referralLink = `${baseUrl}/api/signup?ref=${referralCode}`;
+
+        if (incomingRef) {
+            const findRef = 'SELECT id FROM users WHERE referral_code = ?';
+            db.query(findRef, [incomingRef], (e2, refRows) => {
+                if (e2) return res.status(500).json({ message: "Database error", error: e2 });
+
+                if (refRows.length) {
+                    const referrerId = refRows[0].id;
+                    insertUser({ referredBy: incomingRef, referrerId });
+                } else {
+                    insertUser({ referredBy: null });
+                }
+            });
+        } else {
+            insertUser({ referredBy: null });
         }
-      );
-    }
-  });
+
+        function insertUser({ referredBy, referrerId }) {
+            const insert = `
+                INSERT INTO users (full_name, username, password, commission_plan, referral_code, referral_link, referred_by, click_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            `;
+            db.query(
+                insert,
+                [full_name, username, hashed, commission_plan, referralCode, referralLink, referredBy],
+                (e3, result) => {
+                    if (e3) return res.status(500).json({ message: "Database error", error: e3 });
+
+                    // Increment click_count for the referrer
+                    if (referrerId) {
+                        db.query(`UPDATE users SET click_count = click_count + 1 WHERE id = ?`, [referrerId]);
+                    }
+
+                    const token = generateToken({ id: result.insertId, username });
+                    return res.status(201).json({
+                        message: "User created successfully",
+                        token,
+                        referralCode,
+                        referral_link: referralLink
+                    });
+                }
+            );
+        }
+    });
 };
- 
+// ---------- Login ----------
 const login = (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -88,8 +91,22 @@ const login = (req, res) => {
         }
 
         const token = generateToken({ id: user.id, username: user.username });
-        res.status(200).json({ message: "Login successful", token, referralCode: user.referral_code, referral_link: user.referral_link });
+        res.status(200).json({
+            message: "Login successful",
+            token,
+            referralCode: user.referral_code,
+            referral_link: user.referral_link,
+            click_count: user.click_count
+        });
     });
 };
-
-module.exports = { signup, login };
+const admin = (req,res)=>{
+    const query = `select * from users`
+    db.query(query, (err, results) => {
+        if (err) {
+            return res.status(500).json({ message: "Database error", error: err });
+        }
+        res.status(200).json({ users: results });
+    })
+}
+module.exports = { signup, login, admin };
