@@ -3,6 +3,9 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const db = require("../connection/connection");
 
+
+// authentication of token
+
 // ---------- Signup ----------
 const signup = (req, res) => {
     const { full_name, password, username, commission_plan } = req.body;
@@ -96,10 +99,64 @@ const login = (req, res) => {
             token,
             referralCode: user.referral_code,
             referral_link: user.referral_link,
-            click_count: user.click_count
+            click_count: user.click_count,
+            user_id: user.id
         });
     });
 };
+
+// ------------admin login route--------
+const adminSignUp = (req, res) => {
+    const {username,password} = req.body
+    if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+    }
+    const checek_query = `select * from admin where username = ?`
+    db.query(checek_query, [username], (err, result) => {
+        if (err) {
+            return res.status(500).json({ message: "Database error", error: err });
+        }
+        if (result.length > 0) {
+            return res.status(400).json({ message: "Username already exists" });
+        }
+        const hashed = bcrypt.hashSync(password, 10);
+        const insert_query = `insert into admin (username,password) values (?,?)`
+        db.query(insert_query, [username, hashed], (err, result) => {
+            if (err) {
+                return res.status(500).json({ message: "Database error", error: err });
+            }
+            res.status(201).json({ message: "Admin created successfully" });
+        })
+    })
+
+}
+// -----------Admin route to handle admin login----------
+const adminLogin = (req,res) =>{
+    const {username,password} = req.body
+    if(!username||!password){
+        return res.status(400).json({ message: "Username and password are required" });
+    }
+    const check_query = `select * from admin where username = ?`
+    db.query(check_query,[username],(err,results)=>{
+        if(err){
+            return res.status(500).json({ message: "Database error", error: err });
+        }
+        if(results.length === 0){
+            return res.status(400).json({ message: "Invalid username or password" });
+        }
+        const admin = results[0];
+        const isPasswordValid = bcrypt.compareSync(password, admin.password);
+        if(!isPasswordValid){
+            return res.status(400).json({ message: "Invalid username or password" });
+        }
+        const token = generateToken({ id: admin.id, username: admin.username });
+        res.status(200).json({
+            message: "Login successful",
+            token
+        });
+    })
+}
+// -----------Admin route to fetch all the users ---------------
 const admin = (req,res)=>{
     const query = `select * from users`
     db.query(query, (err, results) => {
@@ -109,4 +166,56 @@ const admin = (req,res)=>{
         res.status(200).json({ users: results });
     })
 }
-module.exports = { signup, login, admin };
+
+// -----------route for users to request withdrawal--------------
+const RequestWithdrawal = (req,res) => {
+    const {amount} = req.body
+    const userId = req.user.id; // Assuming user ID is stored in req.user after authentication
+    if (!amount || isNaN(amount) || amount <= 0) {
+        return res.status(400).json({ message: "Invalid withdrawal amount" });
+    }
+    const query = `INSERT INTO withdrawals (user_id, amount) VALUES (?, ?)`;
+    db.query(query, [userId, amount], (err, result) => {
+        if (err) {
+            return res.status(500).json({ message: "Database error", error: err });
+        }
+        res.status(201).json({ message: "Withdrawal request created successfully", withdrawalId: result.insertId });
+    });
+}
+// -----------route to handle viewing of all withdrawal requests by admin--------------
+const GetAllWithdrawals = (req, res) => {
+    const query = `SELECT w.*, u.username, u.full_name 
+                   FROM withdrawals w 
+                   JOIN users u ON w.user_id = u.id 
+                   ORDER BY w.requested_at DESC`;
+
+    db.query(query, (err, results) => {
+        if (err) return res.status(500).json({ message: "Database error", error: err });
+        res.status(200).json({ withdrawals: results });
+    });
+};
+// ----------route to handle approval of requests by an admin--------------
+const ApproveWithdrawal = (req, res) => {
+    const { withdrawal_id } = req.params;
+    const query = `UPDATE withdrawals SET status = 'approved' WHERE withdrawal_id = ?`;
+    
+    db.query(query, [withdrawal_id], (err, result) => {
+        if (err) return res.status(500).json({ message: "Database error", error: err });
+        if (result.affectedRows === 0) return res.status(404).json({ message: "Withdrawal request not found" });
+        
+        res.status(200).json({ message: "Withdrawal request approved successfully" });
+    });
+}
+// ----------route to handle rejection of requests by an admin--------------
+const RejectWithdrawal = (req, res) => {
+    const { withdrawal_id } = req.params;
+    const query = `UPDATE withdrawals SET status = 'rejected' WHERE withdrawal_id = ?`;
+    
+    db.query(query, [withdrawal_id], (err, result) => {
+        if (err) return res.status(500).json({ message: "Database error", error: err });
+        if (result.affectedRows === 0) return res.status(404).json({ message: "Withdrawal request not found" });
+        
+        res.status(200).json({ message: "Withdrawal request rejected successfully" });
+    });
+}
+module.exports = { signup, login, admin,RequestWithdrawal,GetAllWithdrawals,ApproveWithdrawal,RejectWithdrawal,adminSignUp,adminLogin };
