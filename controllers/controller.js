@@ -111,8 +111,8 @@ const adminSignUp = (req, res) => {
     if (!username || !password) {
         return res.status(400).json({ message: "Username and password are required" });
     }
-    const checek_query = `select * from admin where username = ?`
-    db.query(checek_query, [username], (err, result) => {
+    const check_query = `select * from admin where username = ?`
+    db.query(check_query, [username], (err, result) => {
         if (err) {
             return res.status(500).json({ message: "Database error", error: err });
         }
@@ -218,4 +218,35 @@ const RejectWithdrawal = (req, res) => {
         res.status(200).json({ message: "Withdrawal request rejected successfully" });
     });
 }
-module.exports = { signup, login, admin,RequestWithdrawal,GetAllWithdrawals,ApproveWithdrawal,RejectWithdrawal,adminSignUp,adminLogin };
+
+// -------------route to handle removal of users-----------------
+const removeUser = (req,res) =>{
+    const {id} = req.params
+    const check_query = `
+    set foreign_key_checks = 0;
+    delete from users where id = ?;
+    set foreign_key_checks = 1;
+    `
+    db.query(check_query,[id],(err,results)=>{
+        if(err){
+            console.log(`an error occurred`,err)
+            return res.status(500).json({message:`internal server error`})
+        }
+        if(results.length === 0){
+            console.log(`this user does not exist in the database`)
+            return res.status(404).json({message:`this user does not exist`})
+        }
+        else{
+            const del_query = `delete from users where id = ?`
+            db.query(del_query,[id],(err,results)=>{
+                if(err){
+                    console.log(`an error occurred while trying to delete user,\nPlease try again`)
+                }else{
+                    console.log(`user has been deleted successfully`,results)
+                    return res.status(200).json({message:`user deleted successfully`})
+                }
+            })
+        }
+    })
+}
+module.exports = { signup, login, admin,RequestWithdrawal,GetAllWithdrawals,ApproveWithdrawal,RejectWithdrawal,adminSignUp,adminLogin,removeUser };
