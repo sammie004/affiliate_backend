@@ -87,12 +87,19 @@ const login = (req, res) => {
         }
 
         const user = result[0];
+        // Compare the provided password with the hashed password in the database
+        // Use bcrypt to compare the password
         const isPasswordValid = bcrypt.compareSync(password, user.password);
 
         if (!isPasswordValid) {
             return res.status(400).json({ message: "Invalid username or password" });
         }
+        if (user.is_banned && new Date(user.ban_until) > new Date()) {
 
+            return res.status(403).json({
+                message: `You are banned until ${user.ban_until},reason:${user.reason} please contact support for more information`
+            });
+        }
         const token = generateToken({ id: user.id, username: user.username });
         res.status(200).json({
             message: "Login successful",
@@ -249,4 +256,43 @@ const removeUser = (req,res) =>{
         }
     })
 }
-module.exports = { signup, login, admin,RequestWithdrawal,GetAllWithdrawals,ApproveWithdrawal,RejectWithdrawal,adminSignUp,adminLogin,removeUser };
+// ----------------------route to handle banning of users-------------------
+const banUser = (req, res) => {
+    const { id } = req.params;
+    const { reason, banned_until } = req.body;
+
+    // Validate inputs
+    if (!reason || !banned_until) {
+        return res.status(400).json({ message: "Please provide both reason and banned_until date" });
+    }
+
+    const query = `
+        UPDATE users 
+        SET is_banned = 1, reason = ?, ban_until = ? 
+        WHERE id = ?
+    `;
+
+    db.query(query, [reason, banned_until, id], (err, result) => {
+        if (err) {
+            return res.status(500).json({ message: "Database error", error: err });
+        }
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        res.status(200).json({ message: "User banned successfully" });
+    });
+};
+
+const unbanUser = (req, res) => {
+    const { id } = req.params;
+    const query = `UPDATE users SET is_banned = 0 WHERE id = ?`;
+    
+    db.query(query, [id], (err, result) => {
+        if (err) return res.status(500).json({ message: "Database error", error: err });
+        if (result.affectedRows === 0) return res.status(404).json({ message: "User not found" });
+        
+        res.status(200).json({ message: "User unbanned successfully" });
+    });
+}
+module.exports = { signup, login, admin,RequestWithdrawal,GetAllWithdrawals,ApproveWithdrawal,RejectWithdrawal,adminSignUp,adminLogin,removeUser,banUser, unbanUser };

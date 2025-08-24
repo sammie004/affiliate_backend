@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router()
 
-const {signup, login, admin,RequestWithdrawal,GetAllWithdrawals,ApproveWithdrawal,RejectWithdrawal,adminSignUp,adminLogin,removeUser} = require('../controllers/controller');
+const {signup, login, admin,RequestWithdrawal,GetAllWithdrawals,ApproveWithdrawal,RejectWithdrawal,adminSignUp,adminLogin,removeUser,banUser,unbanUser} = require('../controllers/controller');
 const { authenticateToken } = require('../jwt/jwt');
 
 router.post('/Signup', signup);
@@ -18,6 +18,8 @@ router.delete('/admin/remove-user/:id', removeUser);
 
 router.post('/adminLogin',adminLogin)
 router.post('/adminSignup',adminSignUp)
+router.put('/admin/ban-user/:id', banUser);
+router.put('/admin/unban-user/:id', unbanUser);
 
 
 module.exports = router;
